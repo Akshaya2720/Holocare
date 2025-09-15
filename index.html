@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🧍 HoloCare — Pose Detection</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #f9f9f9;
+      margin: 0;
+      padding: 20px;
+    }
+    
+    h1 {
+      color: #222;
+    }
+    #wrapper {
+      display: inline-block;
+      position: relative;
+    }
+    video, canvas {
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧍 HoloCare — Pose Detection</h1>
+  <p>If working, you’ll see dots on your body joints.</p>
+
+  <div id="wrapper">
+    <video id="camera" width="640" height="480" autoplay playsinline muted></video>
+    <canvas id="overlay" width="640" height="480"></canvas>
+  </div>
+  <style>
+  #dashboard {
+    position: absolute;
+    right: 20px;
+    top: 20px;
+    width: 220px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 15px;
+    border-radius: 12px;
+    font-family: Arial, sans-serif;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    text-align: left;
+  }
+  #dashboard h2 {
+    margin: 0 0 10px 0;
+    font-size: 18px;
+    text-align: center;
+    color: #00e676;
+  }
+  #dashboard p {
+    margin: 8px 0;
+    font-size: 16px;
+  }
+  #progressWrapper {
+    margin-top: 10px;
+    width: 100%;
+    height: 20px;
+    background: #444;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  #progressBar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #00c853, #b2ff59);
+    transition: width 0.3s ease-in-out;
+  }
+</style>
+
+<div id="dashboard">
+  <h2>🏋️ Fitness Stats</h2>
+  <p id="timeText">⏱ 00:00</p>
+  <p id="calorieText">🔥 0 cal</p>
+  <p id="repText">🏃 Jacks: 0</p>
+  <div id="progressWrapper"><div id="progressBar"></div></div>
+</div>
+
+
+
+  <!-- MediaPipe & Drawing Utils -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+
+  <script>
+  const videoElement = document.getElementById("camera");
+  const canvasElement = document.getElementById("overlay");
+  const canvasCtx = canvasElement.getContext("2d");
+
+  // Feedback box
+  const message = document.createElement("div");
+  message.style.position = "absolute";
+  message.style.top = "10px";
+  message.style.left = "50%";
+  message.style.transform = "translateX(-50%)";
+  message.style.background = "rgba(0,0,0,0.7)";
+  message.style.color = "white";
+  message.style.padding = "10px 20px";
+  message.style.borderRadius = "8px";
+  message.style.fontSize = "18px";
+  message.style.fontWeight = "bold";
+  document.body.appendChild(message);
+
+  // Counter box
+  const counterBox = document.createElement("div");
+  counterBox.style.position = "absolute";
+  counterBox.style.top = "60px";
+  counterBox.style.left = "50%";
+  counterBox.style.transform = "translateX(-50%)";
+  counterBox.style.background = "rgba(0,0,150,0.7)";
+  counterBox.style.color = "white";
+  counterBox.style.padding = "10px 20px";
+  counterBox.style.borderRadius = "8px";
+  counterBox.style.fontSize = "18px";
+  counterBox.style.fontWeight = "bold";
+  counterBox.textContent = "Jumping Jacks: 0";
+  document.body.appendChild(counterBox);
+
+  let jumpingJackCount = 0;
+  let inJack = false;
+
+  // Camera setup
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then(stream => {
+      videoElement.srcObject = stream;
+      const camera = new Camera(videoElement, {
+        onFrame: async () => {
+          await pose.send({image: videoElement});
+        },
+        width: 640,
+        height: 480
+      });
+      camera.start();
+    })
+    .catch(err => console.error("❌ Camera error:", err));
+
+  // Pose setup
+  const pose = new Pose({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+  });
+
+  pose.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    enableSegmentation: false,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+
+  pose.onResults(results => {
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+    if (results.poseLandmarks) {
+      drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS,
+                     {color: '#FF0000', lineWidth: 4});
+      drawLandmarks(canvasCtx, results.poseLandmarks,
+                     {color: '#00FF00', lineWidth: 2});
+
+      const nose = results.poseLandmarks[0];
+      const leftWrist = results.poseLandmarks[15];
+      const rightWrist = results.poseLandmarks[16];
+      const leftAnkle = results.poseLandmarks[27];
+      const rightAnkle = results.poseLandmarks[28];
+      const leftShoulder = results.poseLandmarks[11];
+      const rightShoulder = results.poseLandmarks[12];
+
+      if (nose && leftWrist && rightWrist && leftAnkle && rightAnkle && leftShoulder && rightShoulder) {
+        // Hand check (wrists above head)
+        const handsUp = (leftWrist.y < nose.y && rightWrist.y < nose.y);
+
+        // Feet apart check
+        const ankleDist = Math.abs(leftAnkle.x - rightAnkle.x);
+        const shoulderDist = Math.abs(leftShoulder.x - rightShoulder.x);
+        const feetApart = ankleDist > shoulderDist * 1.2;  // must be wider than shoulders
+
+        if (handsUp && feetApart && !inJack) {
+          inJack = true;
+          jumpingJackCount++;
+          counterBox.textContent = "Jumping Jacks: " + jumpingJackCount;
+          message.textContent = "✅ Jumping Jack!";
+          message.style.background = "rgba(0,150,0,0.8)";
+        } else if (!(handsUp && feetApart)) {
+          inJack = false; // Reset for next rep
+          message.textContent = "⚡ Do a Jumping Jack!";
+          message.style.background = "rgba(200,0,0,0.8)";
+        }
+      }
+    }
+    canvasCtx.restore();
+  });
+    // Timer + Calories UI
+  const timerBox = document.createElement("div");
+  timerBox.style.position = "absolute";
+  timerBox.style.top = "110px";
+  timerBox.style.left = "50%";
+  timerBox.style.transform = "translateX(-50%)";
+  timerBox.style.background = "rgba(0,100,150,0.7)";
+  timerBox.style.color = "white";
+  timerBox.style.padding = "10px 20px";
+  timerBox.style.borderRadius = "8px";
+  timerBox.style.fontSize = "18px";
+  timerBox.style.fontWeight = "bold";
+  timerBox.textContent = "⏱ 00:00 | 🔥 0 cal";
+  document.body.appendChild(timerBox);
+
+  let startTime = Date.now();
+
+  function updateTimer() {
+    let elapsed = Math.floor((Date.now() - startTime) / 1000);
+    let minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    let seconds = String(elapsed % 60).padStart(2, '0');
+
+    let calories = (jumpingJackCount * 0.2).toFixed(1); // estimate
+    timerBox.textContent = `⏱ ${minutes}:${seconds} | 🔥 ${calories} cal`;
+  }
+
+  setInterval(updateTimer, 1000);
+    // --- Progress Bar UI ---
+  const progressWrapper = document.createElement("div");
+  progressWrapper.style.position = "absolute";
+  progressWrapper.style.bottom = "20px";
+  progressWrapper.style.left = "50%";
+  progressWrapper.style.transform = "translateX(-50%)";
+  progressWrapper.style.width = "80%";
+  progressWrapper.style.height = "25px";
+  progressWrapper.style.background = "#ddd";
+  progressWrapper.style.borderRadius = "12px";
+  progressWrapper.style.overflow = "hidden";
+  document.body.appendChild(progressWrapper);
+
+  const progressBar = document.createElement("div");
+  progressBar.style.height = "100%";
+  progressBar.style.width = "0%";
+  progressBar.style.background = "linear-gradient(90deg, #00c853, #b2ff59)";
+  progressBar.style.transition = "width 0.3s ease-in-out";
+  progressWrapper.appendChild(progressBar);
+
+  const goal = 20; // target reps
+
+  function updateProgress() {
+    let percent = Math.min((jumpingJackCount / goal) * 100, 100);
+    progressBar.style.width = percent + "%";
+
+    if (percent >= 100) {
+      message.textContent = "🎉 Goal Reached! 20 Jacks!";
+      message.style.background = "rgba(0,150,0,0.9)";
+    }
+  }
+
+</script>
+
+
+
+</body>
+</html>
